@@ -22,8 +22,6 @@ import kotlin.math.abs
 fun App() {
     var isRecording by remember { mutableStateOf(false) }
     var audioRecorder by remember { mutableStateOf<AudioRecorder?>(null) }
-    var showFormatDialog by remember { mutableStateOf(false) }
-    var selectedFormat by remember { mutableStateOf("wav") }
     var amplitudeData by remember { mutableStateOf(listOf<Float>()) }
 
     MaterialTheme {
@@ -39,7 +37,7 @@ fun App() {
                     }.apply { startRecording() }
                 } else {
                     audioRecorder?.stopRecording()
-                    showFormatDialog = true
+                    saveAudioFile()
                     amplitudeData = listOf()
                 }
                 isRecording = !isRecording
@@ -51,29 +49,6 @@ fun App() {
                 AudioWaveform(amplitudeData)
             }
         }
-    }
-
-    if (showFormatDialog) {
-        AlertDialog(
-            onDismissRequest = { showFormatDialog = false },
-            title = { Text("Choose File Format") },
-            text = {
-                Column {
-                    Button(onClick = {
-                        selectedFormat = "wav"
-                        showFormatDialog = false
-                        saveAudioFile(selectedFormat)
-                    }) { Text("WAV") }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Button(onClick = {
-                        selectedFormat = "mp3"
-                        showFormatDialog = false
-                        saveAudioFile(selectedFormat)
-                    }) { Text("MP3") }
-                }
-            },
-            confirmButton = {}
-        )
     }
 }
 
@@ -93,14 +68,17 @@ fun AudioWaveform(amplitudes: List<Float>) {
     }
 }
 
-fun saveAudioFile(format: String) {
+fun saveAudioFile() {
     val fileDialog = FileDialog(Frame(), "Save Recording", FileDialog.SAVE).apply {
-        file = "recording.$format"
+        file = "recording.wav"
         isVisible = true
     }
     fileDialog.file?.let { filename ->
         val selectedFile = File(fileDialog.directory, filename)
-        File("temp_recording.wav").renameTo(selectedFile)
+        if (File("temp_recording.wav").exists()) {
+            File("temp_recording.wav").copyTo(selectedFile, overwrite = true)
+            File("temp_recording.wav").delete()
+        }
     }
 }
 
@@ -117,16 +95,20 @@ class AudioRecorder(private val onAmplitudeUpdate: (Float) -> Unit) {
         line?.start()
 
         recordingThread = Thread {
-            val buffer = ByteArray(1024)
-            val audioStream = AudioInputStream(line)
-            while (line?.isOpen == true) {
-                val bytesRead = audioStream.read(buffer, 0, buffer.size)
+            val bufferSize = 1024
+            val buffer = ByteArray(bufferSize)
+            val audioInputStream = AudioInputStream(line)
+            AudioSystem.write(audioInputStream, AudioFileFormat.Type.WAVE, tempFile)
+
+            while (line?.isRunning == true) {
+                val bytesRead = line?.read(buffer, 0, buffer.size) ?: 0
                 if (bytesRead > 0) {
-                    val amplitude = abs(buffer.maxOrNull()?.toFloat() ?: 0f) / 128f
+                    val amplitude = calculateAmplitude(buffer, bytesRead)
                     onAmplitudeUpdate(amplitude)
                 }
             }
-            AudioSystem.write(audioStream, AudioFileFormat.Type.WAVE, tempFile)
+
+            audioInputStream.close()
         }.apply { start() }
     }
 
@@ -134,6 +116,15 @@ class AudioRecorder(private val onAmplitudeUpdate: (Float) -> Unit) {
         line?.stop()
         line?.close()
         recordingThread?.join()
+    }
+
+    private fun calculateAmplitude(buffer: ByteArray, bytesRead: Int): Float {
+        var max = 0
+        for (i in 0 until bytesRead step 2) {
+            val sample = (buffer[i + 1].toInt() shl 8) or (buffer[i].toInt() and 0xff)
+            max = maxOf(max, abs(sample))
+        }
+        return max / 32768.0f
     }
 }
 
