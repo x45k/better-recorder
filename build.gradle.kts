@@ -25,12 +25,18 @@ dependencies {
 
 compose.desktop {
     application {
-        mainClass = "MainKt"
+        mainClass = "dev.x45k.betterrecorder.MainKt"
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "better-recorder"
+            packageName = "Better Recorder"
             packageVersion = "1.0.0"
+
+            windows {
+                perUserInstall = true
+
+                menuGroup = "Better Recorder"
+            }
         }
     }
 }
